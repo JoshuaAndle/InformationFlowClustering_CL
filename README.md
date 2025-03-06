@@ -1,4 +1,4 @@
-# InformationFlowClustering_CL
+# Information Flow Clustering for Continual Learning
 Clustering and sharing of useful past tasks in Continual Learning via Information Flow metrics
 
 This repository provides the code for implementing Information Flow Clustering in the Continual Learning (CL) setting.
