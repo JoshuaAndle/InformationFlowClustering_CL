@@ -17,6 +17,7 @@ After training on a given task *t* finishes, the behavior of subnetwork *S_t* is
 # Results
 
 We compare the sharing decisions made by using IFC and the resulting accuracies against different manual sharing decisions. The manual decisions considered are "naive" approaches of sharing all past subnetworks, no past subnetworks, or an optimal subset. IFC consistently made the optimal sharing decisions and matched the resulting accuracy, converging in fewer epochs and at higher accuracy than either naive approach. 
+
 <img src="Figures/Learning_Curve.png" alt="Learning Curve" width="500">
 
 
