@@ -21,7 +21,7 @@ We compare the sharing decisions made by using IFC and the resulting accuracies 
 
 
 IFC is compared on three custom datasets: Mixed PMNIST-CIFAR (MPC), Tiny Imagenet CIFAR (TIC), and KMNIST EMNIST Fashion MNIST (KEF). We compare two variants of IFC to benchmark methods: IFC which uses structured pruning for subnetwork creation, and IFC-US which uses unstructured pruning. IFC-US outperforms other methods on MPC and KEF datasets, while underperforming on TIC. This reflects the benefit of IFC on heterogenous datasets such as MPC and KEF which are designed to have substantially different tasks drawn from MNIST and CIFAR, rather than more homogeneous datasets such as TIC, which is composed entirely of natural images. These results reflect a tradeoff in this method where partitioning the network into subnetworks constrains capacity for each task. For heterogeneous datasets, this constraint is outweighed by the benefit of preventing sharing between substantially different tasks, but when all tasks are relatively similar as in TIC, then there is little benefit to offset this constraint. As a result we propose the use of IFC primarily in cases where tasks are expected to be varied. Revisions are being made to reduce the detriment on homogeneous datasets to bring IFC into line with other methods.
-![Overview](Figures/Overview.png)
+![Results](Figures/Results.png)
 
 
 
