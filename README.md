@@ -14,14 +14,24 @@ Information Flow Clustering (IFC) provides a method for determining which previo
 
 After training on a given task *t* finishes, the behavior of subnetwork *S_t* is measured for task *t* by collecting the Pearson Correlation of activations between subsequent pairs of layer outputs. The values are used to fit K-means models *K_t,l* for each layer. When beginning training on a new task *t'>t*, we collect the activations for each previously frozen subnetwork for data from task *t'* and compare these to the K-Means models fit for the data they were initially trained for. Subnetworks with low K-Means scored on task *t'* are deemed to be useful for the task, as their behavior is similar to the task for which they were optimized. A threshold on K-Means score is set and all subnetworks whose behavior falls within this threshold are shared for the training of the new task *t'*.
 
+
+# Usage
+Prior to running the code, if you do not already have Tiny Imagenet set up, the provided "Tiny_Imagenet_200_Setup.ipynb" notebook can be used to prepare it. The remaining datasets can be obtained from the following sources:
+KMNIST 49 - 
+EMNIST - 
+Fashion MNIST - 
+
+Once the data has been prepared and placed in the data/ directory, the model can be trained using the "Example_Experiment_Scripts.ipynb" to replicate the core experiments used in the paper for IFC and IFC-US.
+
+
+
+
+
+
+
 # Results
 
-We compare the sharing decisions made by using IFC and the resulting accuracies against different manual sharing decisions. The manual decisions considered are "naive" approaches of sharing all past subnetworks, no past subnetworks, or an optimal subset. IFC consistently made the optimal sharing decisions and matched the resulting accuracy, converging in fewer epochs and at higher accuracy than either naive approach. 
-
-<img src="Figures/Learning_Curve.png" alt="Learning Curve" width="500">
-
-
-IFC is compared on three custom datasets: Mixed PMNIST-CIFAR (MPC), Tiny Imagenet CIFAR (TIC), and KMNIST EMNIST Fashion MNIST (KEF). We compare two variants of IFC to benchmark methods: IFC which uses structured pruning for subnetwork creation, and IFC-US which uses unstructured pruning. IFC-US outperforms other methods on MPC and KEF datasets, while underperforming on TIC. This reflects the benefit of IFC on heterogenous datasets such as MPC and KEF which are designed to have substantially different tasks drawn from MNIST and CIFAR, rather than more homogeneous datasets such as TIC, which is composed entirely of natural images. These results reflect a tradeoff in this method where partitioning the network into subnetworks constrains capacity for each task. For heterogeneous datasets, this constraint is outweighed by the benefit of preventing sharing between substantially different tasks, but when all tasks are relatively similar as in TIC, then there is little benefit to offset this constraint. As a result we propose the use of IFC primarily in cases where tasks are expected to be varied. Revisions are being made to reduce the detriment on homogeneous datasets to bring IFC into line with other methods.
+IFC is compared on three custom datasets: Mixed PMNIST-CIFAR (MPC), Tiny Imagenet CIFAR (TIC), and KMNIST EMNIST Fashion MNIST (KEF). IFC-US outperforms other methods on MPC and KEF datasets, while underperforming on TIC. This reflects the benefit of IFC on heterogenous datasets such as MPC and KEF which are designed to have substantially different tasks drawn from MNIST and CIFAR, rather than more homogeneous datasets such as TIC, which is composed entirely of natural images. These results reflect a tradeoff in this method where partitioning the network into subnetworks constrains capacity for each task. For heterogeneous datasets, this constraint is outweighed by the benefit of preventing sharing between substantially different tasks, but when all tasks are relatively similar as in TIC, then there is little benefit to offset this constraint. As a result we propose the use of IFC primarily in cases where tasks are expected to be varied. Revisions are being made to reduce the detriment on homogeneous datasets to bring IFC into line with other methods.
 
 <img src="Figures/Results.png" alt="Results" width="600">
 
