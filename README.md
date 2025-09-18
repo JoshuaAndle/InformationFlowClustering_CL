@@ -8,7 +8,7 @@ how different sharing decisions may influence the forward knowledge transfer bet
 
 
 # Method Summary
-![Overview](Figures/Overview.png)
+<img src="Figures/Overview.png" alt="Overview" width="800">
 
 Information Flow Clustering (IFC) provides a method for determining which previously trained subnetworks are useful when shared with the currently trained task. For each task *t*, a new subnetwork *S_t* is trained, consisting of a partition of weights dedicated to task *t*. One or more previously trained and frozen subnetworks may be unmasked during the training of task *t* to share past knowledge with subnetwork *S_t* during the training. IFC implements K-Means models for each previous subnetwork, fit using their behavior on the data for which they were trained. 
 
@@ -17,11 +17,13 @@ After training on a given task *t* finishes, the behavior of subnetwork *S_t* is
 # Results
 
 We compare the sharing decisions made by using IFC and the resulting accuracies against different manual sharing decisions. The manual decisions considered are "naive" approaches of sharing all past subnetworks, no past subnetworks, or an optimal subset. IFC consistently made the optimal sharing decisions and matched the resulting accuracy, converging in fewer epochs and at higher accuracy than either naive approach. 
-![Learning Curve](Figures/Learning\ Curve.png)
+<img src="Figures/Learning_Curve.png" alt="Learning Curve" width="500">
 
 
 IFC is compared on three custom datasets: Mixed PMNIST-CIFAR (MPC), Tiny Imagenet CIFAR (TIC), and KMNIST EMNIST Fashion MNIST (KEF). We compare two variants of IFC to benchmark methods: IFC which uses structured pruning for subnetwork creation, and IFC-US which uses unstructured pruning. IFC-US outperforms other methods on MPC and KEF datasets, while underperforming on TIC. This reflects the benefit of IFC on heterogenous datasets such as MPC and KEF which are designed to have substantially different tasks drawn from MNIST and CIFAR, rather than more homogeneous datasets such as TIC, which is composed entirely of natural images. These results reflect a tradeoff in this method where partitioning the network into subnetworks constrains capacity for each task. For heterogeneous datasets, this constraint is outweighed by the benefit of preventing sharing between substantially different tasks, but when all tasks are relatively similar as in TIC, then there is little benefit to offset this constraint. As a result we propose the use of IFC primarily in cases where tasks are expected to be varied. Revisions are being made to reduce the detriment on homogeneous datasets to bring IFC into line with other methods.
-![Results](Figures/Results.png)
+
+<img src="Figures/Results.png" alt="Results" width="600">
+
 
 
 
