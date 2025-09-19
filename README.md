@@ -17,9 +17,12 @@ After training on a given task *t* finishes, the behavior of subnetwork *S_t* is
 
 # Usage
 Prior to running the code, if you do not already have Tiny Imagenet, K49 MNIST, EMNIST, or Fashion MNIST set up, the provided "Tiny_ImageNet_200_Setup.ipynb" and "KEF_MNIST_Datasets_Preparation.ipynb" notebooks can be used to prepare them. The raw datasets can also be obtained from the following sources:
+
 KMNIST 49 - https://github.com/rois-codh/kmnist
+
 EMNIST - https://www.nist.gov/itl/products-and-services/emnist-dataset
-Fashion MNIST - github.com/zalandoresearch/fashion-mnist/tree/master/data/fashion
+
+Fashion MNIST - https://www.github.com/zalandoresearch/fashion-mnist/tree/master/data/fashion
 
 Once the data has been prepared and placed in the data/ directory, the model can be trained using the "Example_Experiment_Scripts.ipynb" to replicate the core experiments used in the paper for IFC and IFC-US.
 
