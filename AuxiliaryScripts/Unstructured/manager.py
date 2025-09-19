@@ -6,14 +6,8 @@ from __future__ import print_function
 
 import os
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
-from tqdm import tqdm
 
-import collections
-import time
-import copy
 import random
-import multiprocessing
-import json
 import copy
 from math import floor
 
@@ -35,7 +29,6 @@ from AuxiliaryScripts.Unstructured.utils import activations
 
 
 class Manager(object):
-    """Performs pruning on the given model."""
     ### Relavent arguments are moved to the manager to explicitly show which arguments are used by it
     def __init__(self, args, checkpoint):
         self.args = args
@@ -46,7 +39,7 @@ class Manager(object):
         
         self.share_fkt = {}
         self.share_bkt = {}
-        ### Models hold the kmeans models and scores hold the in and cross-task score values for each model
+        ### Models hold the kmeans models and scores hold the in-task and cross-task score values for each model
         self.conn_scoring = {"models": {}, "scores": {}, "scoresnorm": {}}
 
         
@@ -54,7 +47,6 @@ class Manager(object):
         self.labels = None
         self.use_raw_acts = args.use_raw_acts
         
-        ### These are the hardcoded connections within a ResNet18 model, for simplicity of code. 
         
         """
         Explanation of indices lists:
@@ -80,12 +72,12 @@ class Manager(object):
             self.network = net.Network(args)
         
                 
+        ### These are the hardcoded connections within a vgg16 or ResNet18 model, for simplicity of code. 
         if args.arch == "vgg16":
             self.parent_idxs, self.child_idxs, self.ardict = utils.compute_idx_dictionaries(self.network.model, args.arch)
             self.skip_layers = {}
 
         elif args.arch == "modresnet18":
-            ### Hardcoding the layer relationships due to the complexity introduced by skip layers
             ### The parent and child idxs for the updated relu layers with in_place=False
             self.parent_idxs = [1,1, 7, 10,10,13,17,20,20,23,28,31,31,34,38,41,41,44,49,52,52,55,59,62,62,65,70,73,73,76,80]
             self.child_idxs =  [7,13,10,17,23,17,20,28,34,28,31,38,44,38,41,49,55,49,52,59,65,59,62,70,76,70,73,80,86,80,83]
@@ -115,12 +107,12 @@ class Manager(object):
     ### Run evaluation of val or test loader and get all activations stored as acts_dict
     def calc_activations(self):
         self.network.model.eval()
-        self.acts_dict, self.labels = activations(self.val_loader, self.network.model, self.args.cuda, self.ardict, self.args.use_raw_acts)
+        self.acts_dict, self.labels = activations(self.val_loader, self.network.model, self.ardict, self.args.use_raw_acts)
         self.network.model.train()
         print("Done collecting activations")
 
     ### Calculate activation correlations for all layers in the network up to the max_idx layer
-    def calc_corr(self, max_idx = -1):
+    def calc_corr(self, max_idx: int = -1):
         all_conns = {}
         ### Gets the activations. Network is unmasked prior to calling calc_corr
         self.calc_activations()
@@ -156,9 +148,7 @@ class Manager(object):
     
     
     
-            """
-            Code for averaging conns by parent prior by layer
-            """
+            ### Calculate connectivity for each parent filter/neuron averaged over all children, conditioned by class
             parents_by_class = []
             conn_aves = []
             parents = []
@@ -224,8 +214,6 @@ class Manager(object):
         self.conn_scoring['scores'][self.task_num][self.task_num] = torch.tensor(taskscore).mean()
         self.conn_scoring['scoresnorm'][self.task_num][self.task_num] = torch.tensor(taskscore).mean()
         
-        return
-
         
         
         
@@ -233,8 +221,6 @@ class Manager(object):
     ### Get the correlations of past subnetworks on the current data to compute connectivity
     def get_task_conns_corr(self):  
         ### Depending on our chosen measure, we calculate connectivity between filters in subsequent layers
-        # if self.args.similarity_type == "corr":
-        #     connsdict = self.calc_corr()
         taskconnsdict = {}
 
         ### loop over all past tasks, current task hasn't been trained yet so calculating it wouldn't be informative
@@ -251,7 +237,6 @@ class Manager(object):
             
 
             for i in range(0, len(self.child_idxs)):
-                
                 ### Index into connectivity dictionary based on current child layer index. Works for layers that only appear once in child_idxs
                 task_conns = torch.from_numpy(connsdict[i])
                 ### For now I just want to use the average conns over the layer
@@ -312,7 +297,7 @@ class Manager(object):
         return most_similar_tasks
 
 
-
+    ### Determines binary sharing mask for current task and applies it
     def pick_shared_task(self):
         if self.args.share_type == "clustering":
             print("Sharing using automated clustering")
@@ -323,7 +308,7 @@ class Manager(object):
             if (self.args.dataset == "MPC" or self.args.dataset == "KEF"):
                 print("Using optimal share for MPC/KEF dataset")
                 most_similar_task_dict = {1:None, 2:[0], 3:[1], 4:[0,2], 5:[1,3]}
-            elif self.args.share_type == 'optimalmanual' and self.args.dataset == "TIC":
+            elif self.args.dataset == "TIC":
                 print("Using optimal share for TIC dataset")
                 most_similar_task_dict = {1:[0], 2:[0], 3:[0], 4:[0], 5:[0]}
             
@@ -376,14 +361,12 @@ class Manager(object):
         if most_similar_task_keys != None:
             self.share_fkt[self.task_num] = most_similar_task_keys
 
-        self.network.unmask_network()
-
         ### Update the task mask to share and omit the appropriate frozen subnetworks
+        self.network.unmask_network()
         self.network.update_shared_mask(most_similar_task_keys, self.task_num)
         
-        
-        self.network.unmask_network()
         ### Set all omitted weights to 0 with the updated task mask
+        self.network.unmask_network()
         self.network.apply_mask(self.task_num)
 
 
@@ -420,15 +403,11 @@ class Manager(object):
             
 
  
-    def pruning_mask(self, weights, trainable_mask, layer_idx):
+    def pruning_mask(self, weights: torch.Tensor, trainable_mask: torch.Tensor, layer_idx: int):
         """
             Ranks prunable filters by magnitude. Sets all below kth to 0.
             Returns pruned mask.
-        """
-        ### Setting to less-than will allow for fewer new weights to be frozen if frozen weights are deemed sufficient
-        ###    With simple weight-based pruning though this should probably not be implemented
-        
-        """
+
             weight_magnitudes: 2D weight magnitudes
             trainable_mask: 2D boolean mask, True for trainable weights
             task_mask: 2D boolean mask, 1 for all weights included in current task (not omitted incoming weights)
@@ -489,8 +468,8 @@ class Manager(object):
     ##########################################################################################################################################
     """
 
-    def eval(self, verbose=True, mode="test", applymask=True):
-        """Performs evaluation."""
+    ### Performs evaluation on val or test dataloader
+    def eval(self, verbose:bool=True, mode:str="test", applymask:bool=True):
         if mode == 'test':
             dataloader=self.test_loader
         elif mode == 'val':
@@ -529,9 +508,7 @@ class Manager(object):
 
 
     ### Train the model for the current task, using all past frozen weights as well
-    def train(self, epochs, save=True, savename='', best_accuracy=0, finetune=False):
-
-        """Performs training."""
+    def train(self, epochs:int, save:bool=True, savename:str='', best_accuracy:int=0, finetune:bool=False):
         best_model_acc = best_accuracy
         best_model = copy.deepcopy(self.network.model.state_dict())
         val_acc_history = []
@@ -552,7 +529,7 @@ class Manager(object):
         self.network.model.train()
         for idx in range(epochs):
             epoch_idx = idx + 1
-            print('Epoch: ', epoch_idx, '       Learning rate:', optimizer.param_groups[0]['lr'], flush=True)
+            print('Epoch: ', epoch_idx, '------ Learning rate:', optimizer.param_groups[0]['lr'], flush=True)
             
             for x, y in self.train_loader:
                 if self.args.cuda:
@@ -625,14 +602,15 @@ class Manager(object):
         
     """
     ##########################################################################################################################################
-    Testing Functions for Usefulness Metric Quantification. Used in supplementary experiments, not the actual IFC method with Pearson Correlation
+    Testing Functions for Usefulness Metric Quantification. 
+    Used in supplementary experiments, not the actual IFC-US method with Pearson Correlation
     ##########################################################################################################################################
     """       
        
 
         
     ### Calculate the mutual information for a given pair of layers
-    def calc_mi(self, p1_op, c1_op):
+    def calc_mi(self, p1_op: np.ndarray, c1_op: np.ndarray):
         mi_est = 0
         for cl in list(np.unique(self.labels.numpy())):
             p1_class = p1_op[self.labels == cl]
@@ -802,7 +780,7 @@ class Manager(object):
 
 
     ### Depending on our chosen measure, we calculate connectivity between filters in subsequent layers
-    def get_dict_task_metrics(self, similarity_type='mi'):  
+    def get_dict_task_metrics(self, similarity_type:str='mi'):  
         self.calc_activations()
         taskconnsdict = {}
         for task in range(0,self.task_num):

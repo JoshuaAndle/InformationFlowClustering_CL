@@ -8,7 +8,6 @@ from __future__ import division, print_function
 import os
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 import argparse
-import json
 import warnings
 import copy
 import time
@@ -16,8 +15,13 @@ import time
 import numpy as np
 import torch
 import torch.nn as nn
-from torch.optim.lr_scheduler  import MultiStepLR
 
+
+import AuxiliaryScripts.Structured.manager as manager_structured
+import AuxiliaryScripts.Unstructured.manager as manager_unstructured
+
+import AuxiliaryScripts.Structured.utils as utils_structured
+import AuxiliaryScripts.Unstructured.utils as utils_unstructured
 
 # To prevent PIL warnings.
 warnings.filterwarnings("ignore")
@@ -41,12 +45,8 @@ FLAGS.add_argument('--lr', type=float, default=0.1, help='Learning rate')
 FLAGS.add_argument('--lr_min', type=float, default=0.001, help='Minimum learning rate below which training is stopped early')
 FLAGS.add_argument('--lr_patience', type=int, default=5, help='Patience term to dictate when Learning rate is decreased during training')
 FLAGS.add_argument('--lr_factor', type=int, default=5, help='Factor by which to reduce learning rate during training')
-FLAGS.add_argument('--share_lr_offset', type=int, default=1, help='divides initial lr by some factor if there are shared weights to build off of')
-FLAGS.add_argument('--finetune_lr_offset', type=int, default=1, help='divides training lr by some factor for post-pruning finetune step')
 FLAGS.add_argument('--share_sparsity_offset', type=float, default=0.0, help='% by which sparsity is decreased if not sharing any past subnetworks')
 
-FLAGS.add_argument('--train_epochs', type=int, default=40, help='Number of epochs to train for')
-FLAGS.add_argument('--finetune_epochs', type=int, default=30, help='Number of epochs to finetune for after pruning')
 FLAGS.add_argument('--batch_size', type=int, default=64, help='Batch size')
 
 # Pruning options.
@@ -81,22 +81,41 @@ FLAGS.add_argument('--no_reinit', action='store_true', default=False, help='Dont
 
 def main():
     args = FLAGS.parse_args()
+
     ### Early termination conditions
-    if args.prune_perc_per_layer <= 0:
-        print("non-positive prune perc",flush = True)
-        return
+    assert args.prune_perc_per_layer > 0., print("non-positive prune perc",flush = True) 
+    assert args.num_filters > 0, print("non-positive base model width",flush = True)
+        
+    assert args.task_num >= 0, print("Task number must be 0 or greater",flush = True)
+    assert args.num_tasks >= args.task_num, print(f"Starting task number {args.task_num} > number of tasks {args.num_tasks}", flush=True)
+
+    assert args.lr >= 0.0, print("lr must be non-zero", flush=True)
+    assert args.lr_min >= 0.0, print("lr_min must be non-zero", flush=True)
+    assert args.lr_patience > 0, print("lr patience must be greater than zero", flush=True)
+    assert args.lr_factor > 0, print("lr factor must be greater than zero", flush=True)
+
+    assert args.batch_size > 0, print("batch_size must be greater than zero", flush=True)
+
+    assert args.num_shared >= 0 , print("num_shared must be non-negative", flush=True)
+    assert args.num_cluster_layers > 0 , print("num_cluster_layers must be greater than zero", flush=True)
+    assert args.shared_layers >= -1 , print("shared_layers must be -1 or greater", flush=True)
+
+
+
+
+
+
+
     torch.cuda.set_device(0)
     
     
     if args.prune_method == "structured":
-
-        import AuxiliaryScripts.Structured.utils as structured_utils
-        from AuxiliaryScripts.Structured.manager import Manager
-        # manager = structured_manager
-        # utils = structured_utils
+        utils = utils_structured
+        manager_module = manager_structured
     else:
-        import AuxiliaryScripts.Unstructured.utils as  utils
-        from AuxiliaryScripts.Unstructured.manager import Manager
+        utils = utils_unstructured
+        manager_module = manager_unstructured
+
 
     print('Arguments =')
     for arg in vars(args):
@@ -143,13 +162,13 @@ def main():
         
         ### Reloads checkpoint depending on where you are at for the current task's progress (t->c->p)    
         if os.path.isfile(previous_task_path) == True:
-            ckpt = torch.load(previous_task_path)
+            ckpt = torch.load(previous_task_path, weights_only=False)
         else:
             print("No checkpoint file found at ", previous_task_path)
             return 0
     
     ### Initialize the manager using the checkpoint.
-    manager = Manager(args, ckpt)
+    manager = manager_module.Manager(args, ckpt)
 
 
 
@@ -158,14 +177,14 @@ def main():
 
 
 
- ### To evaluate six-task experiments primarily. Loop over all tasks and print out the final networks accuracy on them by applying masks
+    ### To evaluate six-task experiments primarily. Loop over all tasks and print out the final networks accuracy on them by applying masks
     accs = []
     for task in range(0,args.num_tasks):
         #!# We shouldnt HAVE to reload each time, but for some reason I was seeing issues otherwise IIRC. Should look into that given the time
-        ckpt = torch.load(previous_task_path)
+        ckpt = torch.load(previous_task_path, weights_only=False)
         print("\nloaded checkpoint again")
         ### Initialize the manager using the final checkpoint
-        manager = Manager(args, ckpt)
+        manager = manager_module.Manager(args, ckpt)
         
         ### Unmasks all weights prior to eval(). Eval will reapply the appropriate mask
         manager.network.unmask_network()
@@ -187,7 +206,6 @@ def main():
     
        
         print("Task: ", task, "Task ID: ", taskid)
-        ### This is for producing and setting the classifier layer for a given task's # classes
         
         manager.network.set_dataset(task)
         ### Don't mask any of the weights, but swap out the classifier for the current task
@@ -198,31 +216,6 @@ def main():
         
     print("Done")
     print(accs)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 

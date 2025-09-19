@@ -87,8 +87,29 @@ FLAGS.add_argument('--no_reinit', action='store_true', default=False, help='Dont
 
 def main():
     args = FLAGS.parse_args()
+
     ### Early termination conditions
-    
+    assert args.prune_perc_per_layer > 0., print("non-positive prune perc",flush = True) 
+    assert args.num_filters > 0, print("non-positive base model width",flush = True)
+        
+    assert args.task_num >= 0, print("Task number must be 0 or greater",flush = True)
+    assert args.num_tasks > args.task_num, print("Starting task number args.task_num > number of tasks specified", flush=True)
+
+    assert args.lr >= 0.0, print("lr must be non-zero", flush=True)
+    assert args.lr_min >= 0.0, print("lr_min must be non-zero", flush=True)
+    assert args.lr_patience > 0, print("lr patience must be greater than zero", flush=True)
+    assert args.lr_factor > 0, print("lr factor must be greater than zero", flush=True)
+
+    assert args.train_epochs >= 0, print("train_epochs must be greater than zero", flush=True)
+    assert args.finetune_epochs >= 0, print("finetune_epochs must be greater than zero", flush=True)
+    assert args.batch_size > 0, print("batch_size must be greater than zero", flush=True)
+
+    assert args.num_shared >= 0 , print("num_shared must be non-negative", flush=True)
+    assert args.num_cluster_layers > 0 , print("num_cluster_layers must be greater than zero", flush=True)
+    assert args.shared_layers >= -1 , print("shared_layers must be -1 or greater", flush=True)
+
+
+    ### Get the appropriate packages for structured vs unstructured pruning
     if args.prune_method == "structured":
         utils = utils_structured
         manager = manager_structured
@@ -96,10 +117,6 @@ def main():
         utils = utils_unstructured
         manager = manager_unstructured
 
-
-    if args.prune_perc_per_layer <= 0:
-        print("non-positive prune perc",flush = True)
-        return
     torch.cuda.set_device(0)
     
     print('Arguments =')
@@ -107,8 +124,7 @@ def main():
         print('\t'+arg+':',getattr(args,arg))
     print('-'*100)    
     
-    acchistory = {}
-    epochhistory = {}
+    acchistory, epochhistory = {}, {}
 
     ### Determines which tasks are included in the overall sequence
     if args.dataset in ["MPC", 'KEF', 'TIC']: 
@@ -117,16 +133,23 @@ def main():
             acchistory[task] = {'train':{}, 'finetune':{}}
             epochhistory[task] = {'train':{}, 'finetune':{}}
     else: 
-        print("Incorrect dataset name for args.dataset")
+        print("Dataset {} not implemented".format(args.dataset))
         return 0
 
     num_classes_by_task, task_names = utils.get_taskinfo(args.dataset)
 
+
+
+
+
+
+
     ###################
     ##### Prepare Checkpoint and Manager
     ###################
-    args.save_prefix = os.path.join("../checkpoints/", (args.dataset + "_" + args.arch + "_" + args.prune_method), str(args.prune_perc_per_layer), 
-                                                        (args.similarity_type + "_" + args.similarity_method),  str(args.num_shared), str(args.run_id))
+    args.save_prefix = os.path.join("../checkpoints/", (args.dataset + "_" + args.arch + "_" + args.prune_method), 
+                                                        str(args.prune_perc_per_layer), (args.similarity_type + "_" + args.similarity_method),  
+                                                        str(args.num_shared), str(args.run_id))
     os.makedirs(args.save_prefix, exist_ok = True)
 
 
@@ -153,6 +176,12 @@ def main():
     
     ### Initialize the manager using the checkpoint.
     manager = manager.Manager(args, ckpt)
+
+
+
+
+
+
 
 
     ###################
@@ -211,7 +240,6 @@ def main():
 
         ### Add the new classifier's task mask after the classifier has been added to the network
         manager.network.make_taskmask(task)
-        ### Reload any previously omitted frozen weights
         manager.network.unmask_network()
 
         if task != 0:
@@ -222,7 +250,7 @@ def main():
                 manager.network.reinit_statedict(task)
         
 
-        ### train for new task
+        ### Train for new task
         print("Training", flush = True)
         acchistory[task]['train'],epochhistory[task]['train'], val_acc_history  = manager.train(args.train_epochs, save=True, savename=trained_path)
 
@@ -243,7 +271,7 @@ def main():
 
         utils.save_ckpt(manager, finetuned_path)
 
-        # Do final finetuning to improve results on pruned network.
+        ### Do final finetuning to improve results on pruned network.
         if args.finetune_epochs:
             print('Doing some extra finetuning...')
             acchistory[task]['finetune'],epochhistory[task]['finetune'], val_acc_history_finetune = manager.train(args.finetune_epochs, save=True, savename=finetuned_path, best_accuracy=0, finetune=True)

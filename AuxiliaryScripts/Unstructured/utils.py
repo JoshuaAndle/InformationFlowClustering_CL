@@ -1,32 +1,19 @@
 import os
+import copy
+
+# from scipy.special        import *
+
+
 import numpy as np
 import torch
 import torch.nn as nn
-import torch.nn.parallel
-import torch.backends.cudnn as cudnn
-import torch.optim as optim
 import torch.utils.data as data
-import torchvision.datasets as datasets
-import torchvision.models as models
 import torchvision.transforms as transforms
-from PIL import Image
+
 from AuxiliaryScripts import DataGenerator as DG
 from AuxiliaryScripts import cldatasets
 from AuxiliaryScripts.Unstructured import network as net
 
-import time
-import copy
-import math
-import sklearn
-import random 
-
-import scipy.spatial     as ss
-
-from math                 import log, sqrt
-from scipy                import stats
-from sklearn              import manifold
-from scipy.special        import *
-from sklearn.neighbors    import NearestNeighbors
 
 
 
@@ -54,15 +41,14 @@ def getActivation(name):
 
 ### Create forward hooks to all layers which will collect activation state
 ### Collected from ReLu layers when possible, but not all resnet18 trainable layers have coupled relu layers
-def get_all_layers(net, hook_handles, relu_idxs):
+def get_all_layers(net, hook_handles:list, relu_idxs:list[int]):
     for module_idx, module in enumerate(net.shared.modules()):
         if module_idx in relu_idxs:
             hook_handles.append(module.register_forward_hook(getActivation(module_idx)))
 
 
 ### Process and record all of the activations for the given pair of layers
-# def activations(data_loader, model, cuda, relu_idxs, act_idxs):
-def activations(data_loader, model, cuda, ardict, use_raw_acts = False):
+def activations(data_loader, model: nn.Module, ardict:dict, use_raw_acts:bool = False):
     temp_op       = None
     temp_label_op = None
 
@@ -150,9 +136,7 @@ def activations(data_loader, model, cuda, ardict, use_raw_acts = False):
 
 
 ### Saves a checkpoint of the model
-def save_ckpt(manager, savename):
-    """Saves model to file."""
-
+def save_ckpt(manager, savename:str):
     # Prepare the ckpt.
     ckpt = {
         'args': manager.args,
@@ -172,7 +156,7 @@ def save_ckpt(manager, savename):
 
 ### Get a binary mask where all previously frozen weights are indicated by a value of 1
 ### After pruning on the current task, this will still return the same masks, as the new weights aren't frozen until the task ends
-def get_frozen_mask(weights, module_idx, all_task_masks, task_num):
+def get_frozen_mask(weights: torch.Tensor, module_idx:int, all_task_masks:dict, task_num:int):
     mask = torch.zeros(weights.shape)
     ### Include all weights used in past tasks (which would have been subsequently frozen)
     for i in range(0, task_num):
@@ -183,9 +167,9 @@ def get_frozen_mask(weights, module_idx, all_task_masks, task_num):
     return mask
         
     
-### Get a binary mask where all unpruned, unfrozen weights are indicated by a value of 1
+### Get a binary mask where all weights available for training are indicated by a value of 1
 ### Unlike get_frozen_mask(), this mask will change after pruning since the pruned weights are no longer trainable for the current task
-def get_trainable_mask(module_idx, all_task_masks, task_num):
+def get_trainable_mask(module_idx:int, all_task_masks:dict, task_num:int):
     mask = all_task_masks[task_num][module_idx].clone().detach()
     frozen_mask = get_frozen_mask(mask, module_idx, all_task_masks, task_num)
     mask[frozen_mask.eq(1)] = 0
@@ -193,9 +177,8 @@ def get_trainable_mask(module_idx, all_task_masks, task_num):
     
 
   
-### Get a binary mask where all unpruned, unfrozen weights are indicated by a value of 1
-### Unlike get_frozen_mask(), this mask will change after pruning since the pruned weights are no longer trainable for the current task
-def get_shared_mask(module_idx, all_task_masks, task_num):
+### Get a binary mask with a value of 1 for all weights that were shared with the current task by frozen subnetworks
+def get_shared_mask(module_idx:int, all_task_masks:dict, task_num:int):
     ### Get all weight indices included in the current task
     mask = all_task_masks[task_num][module_idx].clone().detach()
     frozen_mask = get_frozen_mask(mask, module_idx, all_task_masks, task_num)
@@ -216,7 +199,7 @@ def get_shared_mask(module_idx, all_task_masks, task_num):
 
 
 
-def get_taskinfo(dataset):
+def get_taskinfo(dataset:str):
     print("Dataset: ", dataset)
     if dataset == 'MPC':
         numclasses = [10,10,10,10,10,10]
@@ -231,7 +214,7 @@ def get_taskinfo(dataset):
     
     
 ### Returns a dictionary of "train", "valid", and "test" data+labels for the appropriate cifar subset
-def get_dataloader(dataset, batch_size, num_workers=4, pin_memory=False, normalize=None, task_num=0, set="train"):
+def get_dataloader(dataset:str, batch_size:int, num_workers:int=4, pin_memory:bool=False, task_num:int=0, set:str="train"):
     
     # standard split CIFAR-10/100 sequence of tasks
 
@@ -266,7 +249,7 @@ def get_dataloader(dataset, batch_size, num_workers=4, pin_memory=False, normali
 ### These dictionaries have been hardcoded for resnet particularly due to the difficulties of automating for the skip layers, 
 ###      but we provide here the general function used to put together the dictionaries mapping for vgg16
 ###   parent->child layers and activation->relu layers (ardict) in vgg16
-def compute_idx_dictionaries(model, modeltype="vgg16"):
+def compute_idx_dictionaries(model:nn.Module, modeltype:str="vgg16"):
     if modeltype in ['vgg16']:
         parent_idxs = []
         child_idxs = []

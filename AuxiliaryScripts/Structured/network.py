@@ -1,17 +1,17 @@
 import torch
-import sys
 from torch import nn
 from torch.utils.data import DataLoader
 import torch.nn.functional as F
-from torchvision import datasets, transforms
-from copy import deepcopy
-
+import copy
+from typing import Optional
 
 from AuxiliaryScripts import clmodels
 from AuxiliaryScripts.Structured import utils
-import copy
 
 
+"""
+The Network class is responsible for low-level functions which manipulate the model, such as training, evaluating, or selecting the classifier layer
+"""
 class Network():
     def __init__(self, args, pretrained="True"):
         self.args = args
@@ -31,7 +31,9 @@ class Network():
         elif self.arch == "vgg16":
             self.model = clmodels.vgg16()   
         else:
-            sys.exit("Wrong architecture")
+            print("Unsupported architecture {} in Network init".format(self.arch))
+            raise ValueError
+
 
         if self.cuda:
             self.model = self.model.cuda()
@@ -52,22 +54,6 @@ class Network():
     
         
         
-    ### Name is slightly misleading, this function takes the merged classifier and overwrites the constituent tasks' individual classifiers with the jointly trained weights
-    def split_task_classifiers(self, tasks, num_classes_by_task = None):
-        cumulative_num_classes = 0
-        for t in tasks:
-            numclasses = num_classes_by_task[t]
-            if self.arch == "modresnet18":
-                self.classifiers[t] = (nn.Linear(self.args.num_filters*8, numclasses))
-            elif self.arch == 'vgg16':
-                self.classifiers[t] = (nn.Linear(4096, numclasses))
-            
-            ### Get the slice of weights from merged classifier corresponding to the given task and assign them back to their own classifier
-            self.classifiers[t].weight.data = copy.deepcopy(self.model.classifier.weight.data[cumulative_num_classes:(cumulative_num_classes + numclasses)])
-
-            cumulative_num_classes += numclasses
-
-
     
         
     """
@@ -77,12 +63,8 @@ class Network():
     """
 
 
-    """
-    The Network class is responsible for low-level functions which manipulate the model, such as training, evaluating, or selecting the classifier layer
-    """
     ### Add a new classifier layer for a given task
-    def add_dataset(self, dataset, num_classes):
-        """Adds a new dataset to the classifier."""
+    def add_dataset(self, dataset:int, num_classes:int):
         if dataset not in self.classifiers.keys():
             if self.arch in ["modresnet18"]:
                 self.classifiers[dataset] = (nn.Linear(self.args.num_filters*8, num_classes))
@@ -93,9 +75,8 @@ class Network():
 
 
     ### Set the networks classifier layer to one of the available tasks'
-    def set_dataset(self, dataset):
-        """Change the active classifier."""
-        assert dataset in self.classifiers.keys()
+    def set_dataset(self, dataset:int):
+        assert dataset in self.classifiers.keys(), "Dataset not in classifiers for set_dataset"
         self.model.classifier = self.classifiers[dataset]
         self.backupmodel.classifier = self.classifiers[dataset]
 
@@ -106,8 +87,7 @@ class Network():
     Need to adjust make_grads_zero to also ensure that all incoming weights to a frozen filter are zeroed, and all weights out of an omitted filter are zeroed as well
     """
     ### Set all frozen and pruned weights' gradients to zero for training
-    def make_grads_zero(self, tasknum):
-        """Sets grads of fixed weights to 0."""
+    def make_grads_zero(self, tasknum:int):
 
         for module_idx, module in enumerate(self.model.shared.modules()):
             if isinstance(module, nn.Conv2d) or isinstance(module, nn.Linear):
@@ -122,7 +102,7 @@ class Network():
 
 
     ### Reset the previously pruned weight values for training the current task
-    def reinit_statedict(self, tasknum):
+    def reinit_statedict(self, tasknum:int):
         for module_idx, module in enumerate(self.model.shared.modules()):
             if isinstance(module, nn.Conv2d) or isinstance(module, nn.Linear):
                 ### Get indices of all trainable weights to reinitialize, with the frozen_filters used to mask out any frozen weights
@@ -142,8 +122,7 @@ class Network():
 
 
     ### Just checks how many parameters per layer are now 0 post-pruning
-    def check(self, verbose=False):
-        """Makes sure that the layers are pruned."""
+    def check(self, verbose:bool=False):
         print('Checking...')
         for layer_idx, module in enumerate(self.model.shared.modules()):
             if isinstance(module, nn.Conv2d) or isinstance(module, nn.Linear):
@@ -180,7 +159,7 @@ class Network():
     """
 
     ### For all omitted filters we want to zero any weights which depend on them to prevent interference if they become unmasked for later sharing
-    def zero_outgoing_omitted(self, tasknum):
+    def zero_outgoing_omitted(self, tasknum:int):
         ### A mask of all weights connected to omitted filters in the parent layer
         omitmask = utils.get_omitted_outgoing_mask(self.all_task_masks, tasknum, self.model, self.args.arch)
 
@@ -218,7 +197,7 @@ class Network():
 
 
     ### For all omitted filters we want to zero any weights which depend on them to prevent interference if they become unmasked for later sharing
-    def zero_shared_omitted(self, tasknum):
+    def zero_shared_omitted(self, tasknum:int):
         ### A mask of all weights connected to omitted filters in the parent layer
         sharedmask = utils.get_shared_outgoing_mask(self.all_task_masks, tasknum, self.model, self.args.arch)
 
@@ -257,7 +236,7 @@ class Network():
 
 
     ### Makes the taskmask for a newly encountered task, note that the masks are stored sequentially rather than by name, under the assumption past tasks aren't re-encountered during training. This can be changed if needed however
-    def make_taskmask(self, tasknum):
+    def make_taskmask(self, tasknum:int):
         ### Creates the task-specific mask during the initial weight allocation
         task_mask = {}
         for module_idx, module in enumerate(self.model.shared.modules()):
@@ -276,7 +255,7 @@ class Network():
 
 
     """
-        Mask manipulation can be done easily by the combination of three functions:
+        Mask manipulation can be done by the combination of three functions:
         1. update_backup: After editing weights in a subnetwork, this commits the changes to the composite backup model
         2. unmask_network: When changing subnetworks, this unmasks all weights, reverting them to their frozen values from self.backupmodel
         3. apply_mask: Apply masking for a given subnetwork by zeroing all omitted weights
@@ -289,7 +268,7 @@ class Network():
        
     ### Done after training or finetuning. Updates the backup model to reflect changes in the model from training, pruning, or merging
     ### Note that this only works because we also update the backup model when removing weights from the taskmask, as during pruning. Otherwise this wouldnt update those weights
-    def update_backup(self, tasknum = -1):
+    def update_backup(self, tasknum:int = -1):
         for module_idx, module in enumerate(self.model.shared.modules()):
             if isinstance(module, nn.Conv2d) or isinstance(module, nn.Linear):
                 layermask = self.all_task_masks[tasknum][module_idx]
@@ -299,15 +278,14 @@ class Network():
                         module2.weight.data[layermask.eq(1)] = module.weight.data.clone()[layermask.eq(1)]
 
        
-    ### Applies appropriate mask to recreate task model for inference
-    def apply_mask(self, tasknum):
-        """To be done to retrieve weights just for a particular dataset"""
+    ### Applies appropriate mask to recreate given task's model for inference
+    def apply_mask(self, tasknum:int):
         for module_idx, module in enumerate(self.model.shared.modules()):
             if isinstance(module, nn.Conv2d) or isinstance(module, nn.Linear):
                 module.weight.data[self.all_task_masks[tasknum][module_idx].eq(0)] = 0.0
 
 
-    def update_shared_mask(self, most_similar_task_keys, tasknum):
+    def update_shared_mask(self, most_similar_task_keys:Optional[list[int]], tasknum:int):
         print("Most similar task keys:", most_similar_task_keys, " for current task number: ", tasknum)
         shared_count = 0
         for module_idx, module in enumerate(self.model.shared.modules()):

@@ -18,8 +18,12 @@ import torch
 import torch.nn as nn
 
 
-from AuxiliaryScripts import utils
-from AuxiliaryScripts.manager import Manager
+import AuxiliaryScripts.Structured.manager as manager_structured
+import AuxiliaryScripts.Unstructured.manager as manager_unstructured
+
+import AuxiliaryScripts.Structured.utils as utils_structured
+import AuxiliaryScripts.Unstructured.utils as utils_unstructured
+
 
 # To prevent PIL warnings.
 warnings.filterwarnings("ignore")
@@ -75,6 +79,37 @@ FLAGS.add_argument('--shared_layers', type=int, default=-1, help='Number of trai
 
 def main():
     args = FLAGS.parse_args()
+
+
+
+    ### Early termination conditions
+    assert args.prune_perc_per_layer > 0., print("non-positive prune perc",flush = True) 
+    assert args.num_filters > 0, print("non-positive base model width",flush = True)
+        
+    assert args.task_num >= 0, print("Task number must be 0 or greater",flush = True)
+    assert args.num_tasks > args.task_num, print("Starting task number args.task_num > number of tasks specified", flush=True)
+
+    assert args.lr >= 0.0, print("lr must be non-zero", flush=True)
+    assert args.lr_min >= 0.0, print("lr_min must be non-zero", flush=True)
+    assert args.lr_patience > 0, print("lr patience must be greater than zero", flush=True)
+    assert args.lr_factor > 0, print("lr factor must be greater than zero", flush=True)
+
+    assert args.batch_size > 0, print("batch_size must be greater than zero", flush=True)
+
+    assert args.num_shared >= 0 , print("num_shared must be non-negative", flush=True)
+    assert args.shared_layers >= -1 , print("shared_layers must be -1 or greater", flush=True)
+
+
+
+
+    if args.prune_method == "structured":
+        utils = utils_structured
+        manager_module = manager_structured
+    else:
+        utils = utils_unstructured
+        manager_module = manager_unstructured
+
+
     torch.cuda.set_device(0)
     
     
@@ -82,7 +117,7 @@ def main():
     if args.dataset in ["MPC", "KEF", "TIC"]: 
         taskset = [*range(0,6,1)]
     else: 
-        print("Incorrect dataset name for args.dataset")
+        print("Dataset {} not implemented".format(args.dataset))
         return 0
         
     final_task_num = taskset[-1]
@@ -110,7 +145,7 @@ def main():
         ckpt = torch.load(finalpath)
 
     ### Initialize the manager using the final checkpoint
-    manager = Manager(args, ckpt)
+    manager = manager_module.Manager(args, ckpt)
 
     
     if args.cuda:
